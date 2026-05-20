@@ -5,14 +5,15 @@
 juce::AudioProcessorValueTreeState::ParameterLayout VisualEQProcessor::createParams()
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
-    for (int i = 0; i < kNumBands; ++i)
+    juce::StringArray typeChoices { "Bell", "Low Shelf", "High Shelf", "Low Cut", "High Cut", "Notch", "Band Pass" };
+    for (int i = 0; i < kNumEQBands; ++i)
     {
         juce::String p = "band" + juce::String(i) + "_";
         layout.add(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID(p + "freq", 1),
             "Band " + juce::String(i + 1) + " Freq",
             juce::NormalisableRange<float>(20.0f, 20000.0f, 0.1f, 0.25f),
-            kDefaultFreqs[i]));
+            kEQDefaultFreqs[i]));
         layout.add(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID(p + "gain", 1),
             "Band " + juce::String(i + 1) + " Gain",
@@ -22,11 +23,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout VisualEQProcessor::createPar
             juce::ParameterID(p + "q", 1),
             "Band " + juce::String(i + 1) + " Q",
             juce::NormalisableRange<float>(0.1f, 10.0f, 0.01f, 0.5f),
-            kDefaultQs[i]));
+            kEQDefaultQs[i]));
         layout.add(std::make_unique<juce::AudioParameterBool>(
             juce::ParameterID(p + "enabled", 1),
             "Band " + juce::String(i + 1) + " On",
-            true));
+            false));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(
+            juce::ParameterID(p + "type", 1),
+            "Band " + juce::String(i + 1) + " Type",
+            typeChoices,
+            0));
     }
     return layout;
 }
@@ -55,15 +61,16 @@ void VisualEQProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     spec.numChannels      = 1;
     for (auto& f : filtersL_) { f.prepare(spec); f.reset(); }
     for (auto& f : filtersR_) { f.prepare(spec); f.reset(); }
-    spectrumAnalyser_.prepare(sampleRate);
-    updateFilters();
+    eqAnalyser_.prepare(sampleRate);
+    hintsAnalyser_.prepare(sampleRate);
+    updateEQFilters();
 }
 
 void VisualEQProcessor::releaseResources() {}
 
-void VisualEQProcessor::updateFilters()
+void VisualEQProcessor::updateEQFilters()
 {
-    for (int i = 0; i < kNumBands; ++i)
+    for (int i = 0; i < kNumEQBands; ++i)
     {
         juce::String p = "band" + juce::String(i) + "_";
         float freq = *apvts_.getRawParameterValue(p + "freq");
@@ -71,15 +78,28 @@ void VisualEQProcessor::updateFilters()
         float q    = *apvts_.getRawParameterValue(p + "q");
         bool  on   = *apvts_.getRawParameterValue(p + "enabled") > 0.5f;
 
-        float gl = on ? juce::Decibels::decibelsToGain(gain) : 1.0f;
+        int typeIdx = juce::jlimit(0, 6, (int)*apvts_.getRawParameterValue(p + "type"));
+        auto bandType = (BandType)typeIdx;
 
         juce::ReferenceCountedObjectPtr<FilterCoefs> c;
-        if      (kBandTypes[i] == BandType::LowShelf)
-            c = FilterCoefs::makeLowShelf  (sampleRate_, (double)freq, (double)q, (double)gl);
-        else if (kBandTypes[i] == BandType::HighShelf)
-            c = FilterCoefs::makeHighShelf (sampleRate_, (double)freq, (double)q, (double)gl);
+        if (!on)
+        {
+            c = FilterCoefs::makePeakFilter(sampleRate_, (double)freq, (double)q, 1.0);
+        }
         else
-            c = FilterCoefs::makePeakFilter(sampleRate_, (double)freq, (double)q, (double)gl);
+        {
+            double gl = juce::Decibels::decibelsToGain(gain);
+            switch (bandType)
+            {
+                case BandType::LowShelf:  c = FilterCoefs::makeLowShelf   (sampleRate_, (double)freq, (double)q, gl); break;
+                case BandType::HighShelf: c = FilterCoefs::makeHighShelf  (sampleRate_, (double)freq, (double)q, gl); break;
+                case BandType::LowCut:    c = FilterCoefs::makeHighPass   (sampleRate_, (double)freq, (double)q); break;
+                case BandType::HighCut:   c = FilterCoefs::makeLowPass    (sampleRate_, (double)freq, (double)q); break;
+                case BandType::Notch:     c = FilterCoefs::makeNotch      (sampleRate_, (double)freq, (double)q); break;
+                case BandType::BandPass:  c = FilterCoefs::makeBandPass   (sampleRate_, (double)freq, (double)q); break;
+                default:                  c = FilterCoefs::makePeakFilter (sampleRate_, (double)freq, (double)q, gl); break;
+            }
+        }
 
         *filtersL_[i].coefficients = *c;
         *filtersR_[i].coefficients = *c;
@@ -92,20 +112,21 @@ void VisualEQProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     for (int i = getTotalNumInputChannels(); i < getTotalNumOutputChannels(); ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
-    updateFilters();
+    updateEQFilters();
 
     float* L = buffer.getWritePointer(0);
     float* R = buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) : nullptr;
     int    n = buffer.getNumSamples();
 
-    for (int i = 0; i < kNumBands; ++i)
+    for (int i = 0; i < kNumEQBands; ++i)
         for (int s = 0; s < n; ++s)
         {
             L[s] = filtersL_[i].processSample(L[s]);
             if (R) R[s] = filtersR_[i].processSample(R[s]);
         }
 
-    spectrumAnalyser_.pushSamples(L, R ? R : L, n);
+    eqAnalyser_.pushSamples(L, R ? R : L, n);
+    hintsAnalyser_.pushSamples(L, R ? R : L, n);
 }
 
 void VisualEQProcessor::getStateInformation (juce::MemoryBlock& dest)

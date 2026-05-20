@@ -2,14 +2,11 @@
 #include <JuceHeader.h>
 #include "SpectrumAnalyser.h"
 
-static constexpr int kNumBands = 5;
+static constexpr int kNumEQBands = 7;
 
-enum class BandType { LowShelf, Peak, HighShelf };
-static constexpr BandType kBandTypes[kNumBands] = {
-    BandType::LowShelf, BandType::Peak, BandType::Peak, BandType::Peak, BandType::HighShelf
-};
-static constexpr float kDefaultFreqs[kNumBands] = { 80.0f, 250.0f, 1000.0f, 4000.0f, 12000.0f };
-static constexpr float kDefaultQs[kNumBands]    = { 0.7f,  1.0f,   1.0f,    1.0f,    0.7f };
+enum class BandType { Bell=0, LowShelf=1, HighShelf=2, LowCut=3, HighCut=4, Notch=5, BandPass=6 };
+static constexpr float kEQDefaultFreqs[kNumEQBands] = { 80.0f, 200.0f, 500.0f, 1000.0f, 3000.0f, 8000.0f, 12000.0f };
+static constexpr float kEQDefaultQs[kNumEQBands]    = { 0.7f,  1.0f,   1.0f,   1.0f,    1.0f,    1.0f,    0.7f };
 
 class VisualEQProcessor : public juce::AudioProcessor
 {
@@ -40,9 +37,10 @@ public:
     void setStateInformation (const void*, int) override;
 
     juce::AudioProcessorValueTreeState& getAPVTS()    { return apvts_; }
-    SpectrumAnalyser& getSpectrumAnalyser()            { return spectrumAnalyser_; }
-    double getPluginSampleRate() const                 { return sampleRate_; }
-    int    getSlotIndex() const                        { return slotIndex_; }
+    SpectrumAnalyser& getEQAnalyser()                 { return eqAnalyser_; }
+    SpectrumAnalyser& getHintsAnalyser()              { return hintsAnalyser_; }
+    double getPluginSampleRate() const                { return sampleRate_; }
+    int    getSlotIndex() const                       { return slotIndex_; }
 
 private:
     double sampleRate_ = 44100.0;
@@ -52,11 +50,12 @@ private:
 
     using Filter      = juce::dsp::IIR::Filter<float>;
     using FilterCoefs = juce::dsp::IIR::Coefficients<float>;
-    std::array<Filter, kNumBands> filtersL_, filtersR_;
+    std::array<Filter, kNumEQBands> filtersL_, filtersR_;
 
-    void updateFilters();
+    void updateEQFilters();
 
-    SpectrumAnalyser spectrumAnalyser_;
+    SpectrumAnalyser eqAnalyser_;
+    SpectrumAnalyser hintsAnalyser_ { 0.2f };
     int slotIndex_ = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VisualEQProcessor)
