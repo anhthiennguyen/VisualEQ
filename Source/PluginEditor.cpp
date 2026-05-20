@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "SharedAnalyserState.h"
 
 VisualEQEditor::VisualEQEditor (VisualEQProcessor& p)
     : AudioProcessorEditor(&p), proc_(p), eq_(p)
@@ -7,9 +8,13 @@ VisualEQEditor::VisualEQEditor (VisualEQProcessor& p)
     setSize(820, 420);
     setResizable(true, true);
     setResizeLimits(600, 300, 1600, 800);
+    SharedAnalyserState::getInstance()->registerEditor(p.getSlotIndex(), this);
 }
 
-VisualEQEditor::~VisualEQEditor() {}
+VisualEQEditor::~VisualEQEditor()
+{
+    SharedAnalyserState::getInstance()->unregisterEditor(proc_.getSlotIndex());
+}
 
 void VisualEQEditor::paint (juce::Graphics& g)
 {

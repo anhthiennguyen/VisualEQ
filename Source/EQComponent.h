@@ -30,6 +30,12 @@ private:
     static constexpr float kSpecMaxDb =     6.0f;
     static constexpr float kEqRange   =    24.0f;
 
+    juce::TextButton autoEqBtn_;
+    void runAutoEQ();
+
+    juce::TextButton showTracksBtn_;
+    bool showOtherSpectra_ = true;
+
     int draggedBand_ = -1;
     int hoveredBand_ = -1;
 
@@ -54,6 +60,9 @@ private:
     void drawNodes      (juce::Graphics&, float w, float h) const;
 
     void timerCallback() override;
+
+    juce::String computeAnalysisHints() const;
+    void drawAnalysisPanel (juce::Graphics&, float w, float h) const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(EQComponent)
 };

@@ -11,10 +11,11 @@ public:
     static constexpr int numBins  = fftSize / 2;
     static constexpr int fifoSize = fftSize * 4;
 
-    SpectrumAnalyser()
+    explicit SpectrumAnalyser (float smoothing = 0.75f)
         : fft_(fftOrder),
           window_(fftSize, juce::dsp::WindowingFunction<float>::hann),
-          abstractFifo_(fifoSize)
+          abstractFifo_(fifoSize),
+          smoothing_(smoothing)
     {
         fifoBuffer_.fill(0.0f);
         fftData_.fill(0.0f);
@@ -71,11 +72,10 @@ private:
         window_.multiplyWithWindowingTable(fftData_.data(), fftSize);
         fft_.performFrequencyOnlyForwardTransform(fftData_.data());
 
-        constexpr float kSmoothing = 0.75f;
         for (int i = 0; i < numBins; ++i)
         {
             float db = juce::Decibels::gainToDecibels(fftData_[i] / (float)fftSize, -100.0f);
-            spectrum_[i] = spectrum_[i] * kSmoothing + db * (1.0f - kSmoothing);
+            spectrum_[i] = spectrum_[i] * smoothing_ + db * (1.0f - smoothing_);
         }
     }
 
@@ -90,4 +90,5 @@ private:
 
     int    accPos_     = 0;
     double sampleRate_ = 44100.0;
+    float  smoothing_  = 0.75f;
 };
